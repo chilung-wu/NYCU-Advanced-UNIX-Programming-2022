@@ -319,6 +319,58 @@ void get_txt(string dir, string file_desc, struct info &proc_info, string file_r
     }
 }
 
+
+// 將 get_rtd 和 get_txt 兩個函數整合為一個更通用的函數，用於獲取指定進程的根目錄或可執行文件的資訊
+void get_info(string dir, string file_desc, struct info &proc_info, const string &fd_type, const string &file_regex, const string &type_regex) {
+    char buf[buf_size];  // 讀取符號鏈接目標的緩衝區
+    struct stat statbuf;  // 存儲文件狀態資訊的結構體
+    int buf_byte, pos;  // 讀取的字節數及字符串位置
+
+    // 構造完整的符號鏈接路徑
+    dir += "/" + file_desc;
+    proc_info.fd = fd_type;
+
+    // 嘗試讀取符號鏈接
+    if ((buf_byte = readlink(dir.c_str(), buf, buf_size)) < 0) {
+        if (errno == EACCES) {
+            // 訪問被拒絕時的處理
+            proc_info.type = "unknown";
+            proc_info.name = dir + " (Permission denied)";
+            proc_info.node = "";
+            Print(proc_info);
+        } else if (errno == ENOENT) {
+            // 文件不存在
+            return;
+        } else {
+            // 讀取符號鏈接失敗
+            error("readlink", errno);
+        }
+    } else {
+        // 讀取文件狀態資訊
+        if (stat(dir.c_str(), &statbuf) < 0) {
+            error("lstat", errno);
+        } else {
+            // 根據文件類型設置 proc_info.type
+            switch (statbuf.st_mode & S_IFMT) {
+                case S_IFCHR:  proc_info.type = "CHR";        break;
+                case S_IFDIR:  proc_info.type = "DIR";        break;
+                case S_IFIFO:  proc_info.type = "FIFO";       break;
+                case S_IFREG:  proc_info.type = "REG";        break;
+                case S_IFSOCK: proc_info.type = "SOCK";       break;
+                default:       proc_info.type = "unknown";    break;
+            }
+            // 設置節點號並結束字符串
+            proc_info.node = to_string(statbuf.st_ino);
+            buf[buf_byte] = '\0';
+            proc_info.name = buf;
+            // 根據提供的正則表達式過濾並打印結果
+            if ((pos = proc_info.name.find(file_regex)) != string::npos && (pos = proc_info.type.find(type_regex)) != string::npos) {
+                Print(proc_info);
+            }
+        }
+    }
+}
+
 //file
 //address  permit   offset  device  node  name
 // 定義函數，傳入目錄路徑、描述符（通常是 'maps'），proc_info 結構體，以及文件和類型的正則表達式。
@@ -662,8 +714,12 @@ int main(int argc, const char* argv[]){
 
                 // softlink 處理軟鏈接和相關文件信息。
                 get_cwd(proc_dir+proc_info.pid,"cwd", proc_info, file_regex, type_regex);
-                get_rtd(proc_dir+proc_info.pid,"root", proc_info, file_regex, type_regex);
-                get_txt(proc_dir+proc_info.pid,"exe", proc_info, file_regex, type_regex);
+                // get_rtd(proc_dir+proc_info.pid,"root", proc_info, file_regex, type_regex);
+                // get_txt(proc_dir+proc_info.pid,"exe", proc_info, file_regex, type_regex);
+
+                // 使用通用函數, 將 get_rtd 和 get_txt 兩個函數整合
+                get_info(proc_dir+proc_info.pid,"root", proc_info, "rtd", file_regex, type_regex);
+                get_info(proc_dir+proc_info.pid,"exe", proc_info, "txt", file_regex, type_regex);
 
                 // each item is file. 處理進程映射到記憶體中的文件。
                 get_mem(proc_dir+proc_info.pid,"maps", proc_info, file_regex, type_regex);
@@ -676,85 +732,6 @@ int main(int argc, const char* argv[]){
     return 0;
 }
 
-
-// int main(int argc, const char* argv[]){
-//     DIR *dp; //opendir
-//     struct dirent *dirp; //readdir
-//     string proc_dir="/proc/";
-//     // -c REGEX, -t TYPE, -f REGEX
-//     string cmd_regex = "", type_regex = "", file_regex = "";
-//     //deal argv
-//     for(int i=1; i<argc ; i=i+2){
-//         if(strcmp(argv[i], "-c")==0){
-//             cmd_regex = argv[i+1];
-//             // cout<<cmd_regex<<" +++"<<endl;
-//         }
-//         else if(strcmp(argv[i], "-t")==0){
-//             type_regex = string(argv[i+1]);
-//             // cout<<type_regex<<" +++"<<endl;
-//             // Valid TYPE includes REG, CHR, DIR, FIFO, SOCK, and unknown
-//             if(type_regex!="REG" && type_regex!="CHR" && type_regex!="DIR" && type_regex!="FIFO" && type_regex!="SOCK" && type_regex!="unknown"){
-//                 cerr<<"Invalid TYPE option.\n";
-//                 exit(1);
-//             }
-//             // cout<<type_regex<<" OK "<<endl;
-//         }
-//         else if(strcmp(argv[i], "-f")==0){
-//             file_regex = string(argv[i+1]);
-//             // cout<<file_regex<<" +++"<<endl;
-//         }
-//     }
-
-//     if((dp = opendir(proc_dir.c_str()))== NULL){
-//         error("opendir", errno);
-//     }
-//     //COMMAND         PID             USER            FD              TYPE            NODE            NAME
-//     cout<<"COMMAND         PID             USER            FD              TYPE            NODE            NAME         "<<endl;
-
-//     while((dirp = readdir(dp))!= NULL){
-//         if(isdigit(dirp->d_name[0])){
-//             string cmd = "";
-//             struct info proc_info;
-//             // cat comm
-//             proc_info.cmd = get_cmd(proc_dir + string(dirp->d_name) + "/comm", cmd_regex, cmd);
-//             // if(proc_info.cmd.compare("a.out")==0){
-//             // if(proc_info.cmd == "a.out"){
-//             //     cout<<"___"<<endl;
-//             //     break;
-//             // }
-//             if(strcmp(proc_info.cmd.c_str(), "")==0){
-//                 continue;
-//             }
-//             else {
-//                 // cout<<proc_info.cmd<<endl;
-
-//                 //delete cmd tail \n
-//                 proc_info.cmd = proc_info.cmd.substr(0, proc_info.cmd.find("\n"));
-//                 proc_info.pid = string(dirp->d_name);
-//                 int p = getpid();
-//                 if(proc_info.pid == to_string(p)){
-//                     continue;
-//                 }
-//                 // cout<<proc_info.cmd<<endl;
-//                 proc_info.user = get_user(proc_dir + proc_info.pid + "/comm" );
-
-//                 //softlink
-//                 get_cwd(proc_dir+proc_info.pid,"cwd", proc_info, file_regex, type_regex);
-//                 get_rtd(proc_dir+proc_info.pid,"root", proc_info, file_regex, type_regex);
-//                 get_txt(proc_dir+proc_info.pid,"exe", proc_info, file_regex, type_regex);
-
-//                 //file
-//                 get_mem(proc_dir+proc_info.pid,"maps", proc_info, file_regex, type_regex);
-//                 //dir
-//                 get_fd(proc_dir+proc_info.pid,"fd", proc_info, file_regex, type_regex);
-
-//                 // cout<<proc_info.cmd<<" "<<proc_info.pid<<" "<<proc_info.user<<endl;
-
-//             }
-//         }
-//     }
-//     return 0;
-// }
 
 /*
 pw_name
