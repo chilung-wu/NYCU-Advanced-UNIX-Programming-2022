@@ -61,8 +61,61 @@ void error(string msg, int error_no){
     exit(EXIT_FAILURE);
 }
 
-// // 函數主要用於讀取並解析文件描述符的資訊文件，以確定文件描述符的訪問權限（例如只讀、只寫或讀寫）
-// // 定義一個函數，該函數根據給定的目錄路徑讀取文件描述符資訊
+
+// Fix segmentation fault
+// 定義一個函數來獲取文件描述符的信息
+string get_fdinfo(string dir){
+    FILE *fp;  // 文件指標，用於打開和讀取文件
+    char last_char;  // 用於儲存解析出來的最後一個有效字符
+    size_t len = 0;  // 用於 getline 函數的緩衝區長度
+    char *line = NULL;  // 用於儲存 getline 讀取的每一行數據
+    string result = "";  // 預設結果為空字符串，如果沒有找到匹配，將返回空字符串
+
+    // 嘗試打開指定的文件
+    if ((fp = fopen(dir.c_str(), "r")) == NULL) {
+        // 如果文件無法打開，直接返回一個空字符串
+        return result;
+    }
+
+    // 使用 getline 循環讀取文件的每一行
+    while (getline(&line, &len, fp) != -1) {
+        // 檢查當前行是否包含 "flags" 字樣
+        if (string(line).find("flags") != string::npos) {
+            // the last one bit is \n, the second last bit is wanted, so -2 
+            // 從包含 "flags" 的行中取得倒數第二個字符（考慮到行尾可能有換行符）
+            last_char = line[string(line).length() - 2];
+            // 根據取得的字符判斷文件描述符的訪問權限
+            switch (last_char) {
+                case '0':
+                    result = "r";  // 只讀
+                    break;
+                case '1':
+                    result = "w";  // 只寫
+                    break;
+                case '2':
+                    result = "u";  // 可讀寫
+                    break;
+                default:
+                    break;  // 如果是其他字符，不修改 result
+            }
+            free(line); // 釋放 getline 分配的內存
+            fclose(fp); // 已經找到所需信息，關閉文件
+            return result; // 返回結果並結束函數
+        }
+    }
+
+    // 如果循環結束未找到 "flags"，釋放可能未釋放的資源
+    if (line != NULL) {
+        free(line);
+    }
+    fclose(fp);  // 關閉文件
+    return result;  // 返回空字符串，表示未找到 flags
+}
+
+// old version, has bug, segmentation fault.
+// 函數主要用於讀取並解析文件描述符的資訊文件，以確定文件描述符的訪問權限（例如只讀、只寫或讀寫）
+// 定義一個函數，該函數根據給定的目錄路徑讀取文件描述符資訊
+/*
 string get_fdinfo(string dir){
     FILE *fp;  // 定義一個文件指標，用於打開和讀取文件
     char last_char;  // 用於存儲解析行中的最後一個字符
@@ -104,6 +157,7 @@ string get_fdinfo(string dir){
     // 如果文件中沒有 "flags" 行或沒有匹配的狀態，返回空字符串
     return "";
 }
+*/
 
 // 定義函數以獲取指定目錄中的命令名稱
 string get_cmd(string dir, string cmd_regex, string cmd){
